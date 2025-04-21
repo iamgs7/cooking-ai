@@ -1,14 +1,29 @@
-import json
+import uuid
+from contextlib import asynccontextmanager
+from typing import Dict, List, Tuple
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langchain.chains import ConversationChain
-from langchain.prompts import PromptTemplate
-from llm_wrapper import llm, memory
-from models.RecipeRequest import RecipeRequest
-from models.RecipeResponse import RecipeResponse
 
-app = FastAPI()
+from llm_wrapper import get_qa_chain_with_vectorstore, get_simple_qa_chain
+from mealdb_vectorstore import get_vectorstore
+from models.RecipeRequest import RecipeQuery
+from models.RecipeResponse import RecipeResponse, SimpleResponse
+
+
+vectorstore = None
+chat_sessions: Dict[str, List[Tuple[str, str]]] = {}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global vectorstore
+    vectorstore = get_vectorstore()
+    yield
+    vectorstore = None
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -17,53 +32,80 @@ app.add_middleware(
 )
 
 
-prompt = PromptTemplate(
-    input_variables=["history", "input"],
-    template="""
-{history}
+@app.post("/v1/chat/chef", response_model=SimpleResponse)
+async def chat_chef(data: RecipeQuery):
+    session_id = data.session_id or str(uuid.uuid4())
 
-You are a cooking assistant that returns recipes in JSON format only.
-The query may have just some food item name, prepare a recipe for that.
-If the query seems harmful, respond with an empty json.
-Do not give any comments on initial or follow-up queries
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
 
-Respond to the user query with a single recipe in this structure:
-{{
-  "title": "Recipe Name",
-  "description": "Short description of the recipe.",
-  "ingredients": ["Ingredient 1", "Ingredient 2", "..."],
-  "instructions": ["Step 1", "Step 2", "..."],
-  "cook_time_minutes": 30,
-  "prep_time_minutes": 10,
-  "servings": 2,
-  "nutritional_values": ["Nutrition 1", "Nutrition 2", "Nutrition 3", "..."],
-  "tags": ["tag1", "tag2", "..."]
-}}
+    # Ensure chat history limits, 10 is default
+    if len(chat_sessions[session_id]) > data.max_history:
+        chat_sessions[session_id] = chat_sessions[session_id][-data.max_history]
 
-User query: "{input}"
-"""
-)
+    history = "\n".join(chat_sessions[session_id])
 
+    # Get answer
+    qa_chain = get_simple_qa_chain()
 
-@app.post("/recipe")
-async def get_recipe(data: RecipeRequest):
-    chain = ConversationChain(llm=llm, prompt=prompt, memory=memory)
-    result = chain.run(input=data.query)
-    recipe = json.loads(result)
-    return RecipeResponse(**recipe)
+    result = qa_chain.invoke({
+        "chat_history": history,
+        "question": data.query
+    })
+
+    # Store new exchange in history
+    chat_sessions[session_id].append(f"User: {data.query}")
+    chat_sessions[session_id].append(f"AI: {result['text']}")
+
+    return {
+        "answer": result["text"],
+        "session_id": session_id
+    }
 
 
-@app.get("/history")
-def get_history():
-    return {"memory": memory.to_json()}
+@app.get("/v1/history/{session_id}")
+def get_history(session_id: str):
+    return {"session_id": session_id, "history": "\n".join(chat_sessions.get(session_id, []))}
 
 
-@app.post("/history/clear")
-def clear_history():
-    memory.clear()
+@app.delete("/v1/history/clear/{session_id}")
+def clear_history(session_id: str):
+    chat_sessions[session_id] = []
     return {"message": "done"}
 
 
-@app.on_event("startup")
-async def startup_event():
-    print("Started...")
+@app.post("/v2/chat/mealdb", response_model=RecipeResponse)
+async def chat_mealdb(data: RecipeQuery):
+    global vectorstore
+    if vectorstore is None:
+        return {"error": "Vectorstore not loaded. Please check startup logs."}
+
+    session_id = data.session_id or str(uuid.uuid4())
+
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
+
+    # Get history with limit
+    history = chat_sessions[session_id][-data.max_history:
+                                        ] if chat_sessions[session_id] else []
+
+    # Get answer
+    qa_chain = get_qa_chain_with_vectorstore(vectorstore=None)
+
+    result = qa_chain.invoke({
+        "query": data.query,
+        "chat_history": history
+    })
+
+    print(session_id)
+    # Store new exchange in history
+    chat_sessions[session_id].append((data.query, result["result"]))
+
+    sources = [doc.metadata.get("title", "Unknown")
+               for doc in result["source_documents"]]
+
+    return {
+        "answer": result["result"],
+        "sources": sources,
+        "session_id": session_id
+    }

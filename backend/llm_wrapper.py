@@ -1,22 +1,47 @@
-# from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
+from langchain.chains import LLMChain, RetrievalQA
+from langchain.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
-model = "llama3.2:1b-instruct-q8_0"
-memory = ConversationBufferMemory()
-llm = OllamaLLM(model=model)
+from constants import LLM_QUERY_MODEL
+from prompt import get_context_cooking_prompt_template
 
 
-# class LLMWrapper:
+def get_simple_qa_chain():
 
-#     def __init__(self, model="llama3.2:1b-instruct-q8_0", prompt: str = ""):
+    llm = OllamaLLM(model=LLM_QUERY_MODEL)
+    prompt = PromptTemplate(
+        input_variables=["chat_history", "question"],
+        template=get_context_cooking_prompt_template()
+    )
 
-#         self.llm = OllamaLLM(model=model)
-#         self.memory = ConversationBufferMemory()
-#         self.chain = ConversationChain(
-#             llm=self.llm, prompt=prompt, memory=self.memory
-#         )
+    qa_chain = LLMChain(
+        llm=llm,
+        prompt=prompt
+    )
 
-#     def run_query(self, query):
-#         result = self.chain.run(input=query)
-#         return result
+    return qa_chain
+
+
+def get_qa_chain_with_vectorstore(vectorstore=None):
+
+    llm = OllamaLLM(model=LLM_QUERY_MODEL)
+
+    prompt_template = PromptTemplate(
+        template=(
+            get_context_cooking_prompt_template() +
+            "\n\nContext:\n{context}\n\Question:{question}"
+        ),
+        input_variables=["context", "question"]
+    )
+
+    retriever = vectorstore.as_retriever(search_type="similarity", k=3)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever,
+        chain_type_kwargs={"prompt": prompt_template},
+        return_source_documents=True
+    )
+    print("Vectorstore loaded and QA chain is ready.")
+
+    return qa_chain
