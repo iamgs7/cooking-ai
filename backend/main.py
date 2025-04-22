@@ -41,7 +41,8 @@ async def chat_chef(data: RecipeQuery):
 
     # Ensure chat history limits, 10 is default
     if len(chat_sessions[session_id]) > data.max_history:
-        chat_sessions[session_id] = chat_sessions[session_id][-data.max_history]
+        chat_sessions[session_id] = \
+            chat_sessions[session_id][:-data.max_history]
 
     history = "\n".join(chat_sessions[session_id])
 
