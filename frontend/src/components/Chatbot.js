@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import MarkdownRenderer from './MarkdownRenderer';
 import TypingMarkdownRenderer from "./TypingMarkdownRenderer";
+import ToggleSwitch from './ToggleSwitch';
 import axios from "axios";
 
 function Chatbot() {
   const [query, setQuery] = useState("");
+  const [useMealDB, setUseMealDB] = useState(false);
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState('');
@@ -12,6 +14,10 @@ function Chatbot() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleToggleMealDB = () => {
+    setUseMealDB(prevState => !prevState);
   };
 
   useEffect(() => {
@@ -28,10 +34,10 @@ function Chatbot() {
     try {
 
       const queryDataToSend = sessionId.length > 0 
-      ? { 'query': query, 'session_id': sessionId }
-      : { 'query': query };
+      ? { 'query': query, 'session_id': sessionId, 'use_mealdb': useMealDB }
+      : { 'query': query, 'use_mealdb': useMealDB };
 
-      const res = await axios.post("http://localhost:8000/v1/chat/chef", queryDataToSend);  
+      const res = await axios.post("http://localhost:8000/v1/chat/chef", queryDataToSend);
       const recipe = res.data;
       
       if (recipe.error) {
@@ -52,6 +58,19 @@ function Chatbot() {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  const clearChat = async () => {
+    try {
+      const resp = await axios.delete("http://localhost:8000/v1/history/clear/" + sessionId);
+      console.log(resp);
+    } catch (error) {
+      console.log(error);
+    } finally {
+      setMessages([]);
+      setIsTyping(false);
+      setQuery("");
+    } 
   };
 
   const handleKeyPress = (e) => {
@@ -143,6 +162,13 @@ function Chatbot() {
       </div>
 
       {/* Input Section Fixed at Bottom */}
+      <div className="settings-panel">
+        <ToggleSwitch 
+          isOn={useMealDB}
+          handleToggle={handleToggleMealDB}
+          label="Use MealDB for Recipes"
+        />
+      </div>
       <div
         style={{
           display: "flex",
@@ -172,6 +198,8 @@ function Chatbot() {
           onClick={fetchRecipe}
           style={{
             padding: "0.75rem 1.25rem",
+            marginRight: "0.5em",
+            marginLeft: "0.5em",
             backgroundColor: "#4F46E5",
             color: "#fff",
             border: "none",
@@ -180,6 +208,19 @@ function Chatbot() {
           }}
         >
           Send
+        </button>
+        <button
+          onClick={clearChat}
+          style={{
+            padding: "0.75rem 1.25rem",
+            backgroundColor: "#4F46E5",
+            color: "#fff",
+            border: "none",
+            borderRadius: "0.5rem",
+            cursor: "pointer",
+          }}
+        >
+          Clear
         </button>
       </div>
 

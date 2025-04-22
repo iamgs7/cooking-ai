@@ -3,7 +3,7 @@ from langchain.prompts import PromptTemplate
 from langchain_ollama import OllamaLLM
 
 from constants import LLM_QUERY_MODEL
-from prompt import get_context_cooking_prompt_template
+from prompt import get_context_cooking_prompt_template, get_simple_cooking_prompt_template
 
 
 def get_simple_qa_chain():
@@ -27,11 +27,9 @@ def get_qa_chain_with_vectorstore(vectorstore=None):
     llm = OllamaLLM(model=LLM_QUERY_MODEL)
 
     prompt_template = PromptTemplate(
-        template=(
-            get_context_cooking_prompt_template() +
-            "\n\nContext:\n{context}\n\Question:{question}"
-        ),
-        input_variables=["context", "question"]
+        template=("Context: {context}\n" + "Question: {question}\n" +
+                  get_simple_cooking_prompt_template()),
+        input_variables=["question", "context"]
     )
 
     retriever = vectorstore.as_retriever(search_type="similarity", k=3)
@@ -39,7 +37,9 @@ def get_qa_chain_with_vectorstore(vectorstore=None):
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
-        chain_type_kwargs={"prompt": prompt_template},
+        chain_type_kwargs={
+            "prompt": prompt_template,
+        },
         return_source_documents=True
     )
     print("Vectorstore loaded and QA chain is ready.")
