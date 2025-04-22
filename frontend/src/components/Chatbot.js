@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
+import MarkdownRenderer from './MarkdownRenderer';
 import axios from "axios";
 
 function Chatbot() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState('');
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -15,37 +17,6 @@ function Chatbot() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const simulateTypingEffect = (fullText, delay = 5) => {
-    let i = 0;
-    const interval = setInterval(() => {
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last && last.sender === "bot") {
-          last.text = fullText.slice(0, i) + '<span class="blinking-cursor">|</span>';
-          updated[updated.length - 1] = { ...last };
-        }
-        return updated;
-      });
-  
-      i++;
-      if (i > fullText.length) {
-        clearInterval(interval);
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last && last.sender === "bot") {
-            // Set final full text without the blinking cursor
-            last.text = fullText;
-            updated[updated.length - 1] = { ...last };
-          }
-          return updated;
-        });
-        setIsTyping(false);
-      }
-    }, delay);
-  };  
-
   const fetchRecipe = async () => {
     if (!query.trim()) return;
     const userMessage = { sender: "user", text: query };
@@ -54,18 +25,23 @@ function Chatbot() {
     setQuery("");
 
     try {
-      const res = await axios.post("http://localhost:8000/recipe", { query });
-      const recipe = res.data;
 
+      const queryDataToSend = sessionId.length > 0 
+      ? { 'query': query, 'session_id': sessionId }
+      : { 'query': query };
+
+      const res = await axios.post("http://localhost:8000/v1/chat/chef", queryDataToSend);  
+      const recipe = res.data;
+      
       if (recipe.error) {
         setMessages((prev) => [
           ...prev,
           { sender: "bot", text: recipe.raw || "Sorry, something went wrong." },
         ]);
       } else {
-        const recipeMessage = formatRecipeMessage(recipe);
-        setMessages((prev) => [...prev, { sender: "bot", text: "" }]);
-        simulateTypingEffect(recipeMessage);
+        const recipeMessage = recipe.answer;
+        setMessages((prev) => [...prev, { sender: "bot", text: recipeMessage }]);
+        setSessionId(recipe.session_id);
       }
     } catch (error) {
       setMessages((prev) => [
@@ -75,24 +51,6 @@ function Chatbot() {
     } finally {
       setIsTyping(false);
     }
-  };
-
-  const formatRecipeMessage = (r) => {
-    return `
-      <strong>🍽️ ${r.title}</strong><br /><br />
-      ${r.description}<br /><br />
-      <strong>⏱️ Prep:</strong> ${r.prep_time_minutes} mins |
-      <strong> 🍳 Cook:</strong> ${r.cook_time_minutes} mins |
-      <strong> 🍽️ Servings:</strong> ${r.servings}<br /><br />
-
-      <strong>🥗 Ingredients:</strong><br />
-      <ul>${r.ingredients.map((item) => `<li>${item}</li>`).join("")}</ul>
-
-      <strong>📝 Instructions:</strong><br />
-      <ol>${r.instructions.map((step) => `<li>${step}</li>`).join("")}</ol>
-
-      <strong>📋 Tags:</strong> ${r.tags.join(", ")}
-    `;
   };
 
   const handleKeyPress = (e) => {
@@ -105,12 +63,12 @@ function Chatbot() {
   return (
     <div
       style={{
-        maxWidth: "700px",
+        maxWidth: "70%",
         height: "100vh",
         margin: "0 auto",
         display: "flex",
         flexDirection: "column",
-        background: "#111827", // Dark background
+        background: "#111827",
         color: "#f9fafb",
         fontFamily: "sans-serif",
       }}
@@ -154,7 +112,7 @@ function Chatbot() {
             }}
           >
             {msg.sender === "bot" ? (
-              <span dangerouslySetInnerHTML={{ __html: msg.text }} />
+                <MarkdownRenderer markdown={msg.text} />
             ) : (
               msg.text
             )}
