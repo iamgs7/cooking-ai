@@ -74,6 +74,8 @@ cd frontend
 npm ci install
 npm start
 ```
+### Demo
+- https://youtu.be/6U31oBXV4so
 
 ### 📜 License
 - MIT © iamgs7
