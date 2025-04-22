@@ -62,6 +62,7 @@ pip install -r backend/requirements.txt
 - Run the FastAPI backend:
 
 ```bash
+cd backend
 uvicorn main:app --reload
 ```
 - The app will build a vectorstore from mealdb on first run.
