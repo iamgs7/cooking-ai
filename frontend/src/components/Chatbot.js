@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import MarkdownRenderer from './MarkdownRenderer';
+import TypingMarkdownRenderer from "./TypingMarkdownRenderer";
 import axios from "axios";
 
 function Chatbot() {
@@ -112,7 +113,11 @@ function Chatbot() {
             }}
           >
             {msg.sender === "bot" ? (
+              msg === messages[messages.length - 1] ? (
+                <TypingMarkdownRenderer markdown={msg.text} typingSpeed={15} />
+              ) : (
                 <MarkdownRenderer markdown={msg.text} />
+              )
             ) : (
               msg.text
             )}
